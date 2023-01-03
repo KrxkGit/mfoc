@@ -1,10 +1,10 @@
 AM_CFLAGS  = @libnfc_CFLAGS@
 
-bin_PROGRAMS = mfoc
+bin_PROGRAMS = nfc-mfdetect
 
-noinst_HEADERS = crapto1.h mfoc.h mifare.h nfc-utils.h
+noinst_HEADERS = crapto1.h nfc-mfdetect.h mifare.h nfc-utils.h
 
-mfoc_SOURCES = crapto1.c crypto1.c mfoc.c mifare.c nfc-utils.c
-mfoc_LDADD   = @libnfc_LIBS@
+nfc_mfdetect_SOURCES = crapto1.c crypto1.c nfc-mfdetect.c mifare.c nfc-utils.c
+nfc_mfdetect_LDADD   = @libnfc_LIBS@
 
-dist_man_MANS = mfoc.1
+dist_man_MANS = nfc-mfdetect.1

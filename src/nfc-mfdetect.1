@@ -1,9 +1,9 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
 .TH MFOC 1 "May 13, 2011"
 .SH NAME
-mfoc \- MIFARE Classic offline cracker
+nfc-mfdetect \- MIFARE Classic offline cracker
 .SH SYNOPSIS
-.B mfoc
+.B nfc-mfdetect
 [ \fB\-h\fP ]
 [ \fB\-k\fP \fIKEY\fR ]...
 [ \fB\-O\fP \fIFILE\fR ]
@@ -11,7 +11,7 @@ mfoc \- MIFARE Classic offline cracker
 [ \fB\-T\fP \fINUM\fR ]
 .SH DESCRIPTION
 This manual page documents briefly the
-.B mfoc
+.B nfc-mfdetect
 command.
 .PP
 \fBmfoc\fP is a program that cracks the encryption of a MIFARE Classic chip and dumps the chip's keys and decrypted memory contents to a file.
@@ -34,7 +34,7 @@ Probe each sector up to NUM times.  Default is 20.
 \fB\-T\fP \fINUM\fR
 Set half the range for a possible distance tolerance to NUM.  Default is 20 (for a total range of 40).
 .SH AUTHOR
-.B mfoc
+.B nfc-mfdetect
 was written by Norbert Szetei and Pavol Luptak with contributions by others.
 .PP
 This manual page was written by Thomas Hood <jdthood@gmail.com>.

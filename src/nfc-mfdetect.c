@@ -50,7 +50,7 @@
 #include "config.h"
 #include "mifare.h"
 #include "nfc-utils.h"
-#include "mfoc.h"
+#include "nfc-mfdetect.h"
 
 //SLRE 
 #include "slre.h"
@@ -648,10 +648,9 @@ int main(int argc, char *const argv[])
     dumpKeysA = false;
   }
 
-
   for (i = 0; i < (t.num_sectors); ++i) {
     if ((dumpKeysA && !t.sectors[i].foundKeyA) || (!dumpKeysA && !t.sectors[i].foundKeyB)) {
-      fprintf(stdout, "\nTry again, there are still some encrypted blocks\n");
+      fprintf(stdout, "\nThere are some encrypted blocks\n");
       succeed = 0;
       break;
     }
@@ -677,8 +676,8 @@ int main(int argc, char *const argv[])
         mf_anticollision(t, r);
       } else { // and Read
         if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_READ, block, &mp)) >= 0) {
-          fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'A', bytes_to_num(t.sectors[i].KeyA, 6));
-          print_hex(mp.mpd.abtData, 16);
+          // fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'A', bytes_to_num(t.sectors[i].KeyA, 6));
+          // print_hex(mp.mpd.abtData, 16);
           mf_configure(r.pdi);
           mf_select_tag(r.pdi, &(t.nt));
           failure = false;
@@ -700,8 +699,8 @@ int main(int argc, char *const argv[])
             mf_anticollision(t, r);
           } else { // and Read
             if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_READ, block, &mp)) >= 0) {
-              fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'B', bytes_to_num(t.sectors[i].KeyB, 6));
-              print_hex(mp.mpd.abtData, 16);
+              // fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'B', bytes_to_num(t.sectors[i].KeyB, 6));
+              // print_hex(mp.mpd.abtData, 16);
               mf_configure(r.pdi);
               mf_select_tag(r.pdi, &(t.nt));
               failure = false;
@@ -755,7 +754,9 @@ error:
 
 void usage(FILE *stream, int errno)
 {
-  fprintf(stream, "Usage: mfoc [-h] [-k key] [-f file] ... [-P probnum] [-T tolerance] [-O output]\n");
+  fprintf(stream, "The nfc-mfdetect is a mfoc castrated version. Only detect but not crack\n");
+  fprintf(stream, "\n");
+  fprintf(stream, "Usage: nfc-mfdetect [-h] [-k key] [-f file] ... [-P probnum] [-T tolerance] [-O output]\n");
   fprintf(stream, "\n");
   fprintf(stream, "  h     print this help and exit\n");
 //    fprintf(stream, "  B     instead of 'A' dump 'B' keys\n");
@@ -769,13 +770,13 @@ void usage(FILE *stream, int errno)
   fprintf(stream, "  O     file in which the card contents will be written (REQUIRED)\n");
   fprintf(stream, "  D     file in which partial card info will be written in case PRNG is not vulnerable\n");
   fprintf(stream, "\n");
-  fprintf(stream, "Example: mfoc -O mycard.mfd\n");
-  fprintf(stream, "Example: mfoc -k ffffeeeedddd -O mycard.mfd\n");
-  fprintf(stream, "Example: mfoc -f keys.txt -O mycard.mfd\n");
-  fprintf(stream, "Example: mfoc -P 50 -T 30 -O mycard.mfd\n");
+  fprintf(stream, "Example: nfc-mfdetect -O mycard.mfd\n");
+  fprintf(stream, "Example: nfc-mfdetect -k ffffeeeedddd -O mycard.mfd\n");
+  fprintf(stream, "Example: nfc-mfdetect -f keys.txt -O mycard.mfd\n");
+  fprintf(stream, "Example: nfc-mfdetect -P 50 -T 30 -O mycard.mfd\n");
   fprintf(stream, "\n");
-  fprintf(stream, "This is mfoc version %s.\n", PACKAGE_VERSION);
-  fprintf(stream, "For more information, run: 'man mfoc'.\n");
+  fprintf(stream, "This is nfc-mfdetect version %s.\n", PACKAGE_VERSION);
+  fprintf(stream, "For more information, run: 'man nfc-mfdetect'.\n");
   exit(errno);
 }
 
@@ -858,12 +859,13 @@ int find_exploit_sector(mftag t)
     fprintf(stdout, "\nWe have all sectors encrypted with the default keys..\n\n");
     return -1;
   }
-  for (i = 0; i < t.num_sectors; i++) {
-    if ((t.sectors[i].foundKeyA) || (t.sectors[i].foundKeyB)) {
-      fprintf(stdout, "\n\nUsing sector %02d as an exploit sector\n", i);
-      return i;
-    }
-  }
+  // for (i = 0; i < t.num_sectors; i++) {
+  //   if ((t.sectors[i].foundKeyA) || (t.sectors[i].foundKeyB)) {
+  //     fprintf(stdout, "\n\nUsing sector %02d as an exploit sector\n", i);
+  //     return i;
+  //   }
+  // }
+  return -1;
   ERR("\n\nNo sector encrypted with the default key has been found, exiting..");
   exit(EXIT_FAILURE);
 }
@@ -1059,10 +1061,10 @@ int mf_enhanced_auth(int e_sector, int a_sector, mftag t, mfreader r, denonce *d
       NtLast = bytes_to_num(Rx, 4) ^ crypto1_word(pcs, bytes_to_num(Rx, 4) ^ t.authuid, 1);
 
       // Make sure the card is using the known PRNG
-      if (! validate_prng_nonce(NtLast)) {
-           printf("Card is not vulnerable to nested attack\n");
+      // if (! validate_prng_nonce(NtLast)) {
+           // printf("Card is not vulnerable to nested attack\n");
            return -99999;
-      }
+      // }
       // Save the determined nonces distance
       d->distances[m] = nonce_distance(Nt, NtLast);
 

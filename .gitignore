@@ -7,7 +7,10 @@ config.h
 config.h.in
 config.log
 config.status
+config.sub
+config.guess
 configure
+configure~
 compile
 depcomp
 install-sh
@@ -17,7 +20,7 @@ src/*.o
 src/.deps/
 src/Makefile
 src/Makefile.in
-src/mfoc
-src/mfoc.exe
+src/nfc-mfdetect
+src/nfc-mfdetect.exe
 stamp-h1
-
+.DS_Store
