@@ -549,7 +549,7 @@ int main(int argc, char *const argv[])
                     fprintf(pfKey, "%012llx;%d;%c;%d;%c", knownKey, knownSector, knownKeyLetter, unknownSector, unknownKeyLetter);
                     fclose(pfKey);
                 }
-                return 9;
+                return 0;
           }
 
           printf("Sector: %d, type %c, probe %d, distance %d ", j, (dumpKeysA ? 'A' : 'B'), k, d.median);
