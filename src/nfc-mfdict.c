@@ -50,13 +50,14 @@
 #include "config.h"
 #include "mifare.h"
 #include "nfc-utils.h"
-#include "nfc-mfdetect.h"
+#include "nfc-mfdict.h"
 
 //SLRE 
 #include "slre.h"
 #include "slre.c"
 
 #define MAX_FRAME_LEN 264
+#define VT100_cleareol "\r\33[2K"
 
 static const nfc_modulation nm = {
 .nmt = NMT_ISO14443A,
@@ -74,9 +75,10 @@ uint32_t unexpected_random = 0;
 
 int main(int argc, char *const argv[])
 {
-  int ch, i, k, n, j, m;
-  int key, block;
+  int ch, i, k, n, j, m, keyType;
+  int key, block, sector;
   int succeed = 1;
+  int start_line = 0;
 
   // Exploit sector
   int e_sector;
@@ -109,6 +111,8 @@ int main(int argc, char *const argv[])
     {0x8f, 0xd0, 0xa4, 0xf2, 0x56, 0xe9}
 
   };
+  int currentPosition = -14;
+
 
   mftag        t;
   mfreader    r;
@@ -130,16 +134,18 @@ int main(int argc, char *const argv[])
   
   //File pointers for the keyfile 
   FILE * fp;
+  FILE * fp_dict;
   char line[20];
   size_t len = 0;
   char * read;
+  int dict_len = 0;
   
   //Regexp declarations
   static const char *regex = "([0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])";
   struct slre_cap caps[2];  
 
   // Parse command line arguments
-  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:f:")) != -1) {
+  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:f:d:l:")) != -1) {
     switch (ch) {
       case 'P':
         // Number of probes
@@ -160,7 +166,28 @@ int main(int argc, char *const argv[])
         // fprintf(stdout, "Tolerance number: %d\n", probes);
       }
       break;
-    case 'f':
+      case 't': {
+        keyType = optarg[0];
+        if (!(keyType == 'A' || keyType == 'B')) {
+          ERR("The key type must be (A) or (B)");
+          exit(EXIT_FAILURE);
+        }
+      }
+      break;
+      case 's': {
+        sector = atoi(optarg);
+      }
+      case 'l': {
+        start_line = atoi(optarg) - 1;
+      }
+      break;
+      case 'd':
+        if (!(fp_dict = fopen(optarg, "r"))) {
+          fprintf(stderr, "Cannot open dict file: %s, exiting\n", optarg);
+          exit(EXIT_FAILURE);
+        }
+        break;
+      case 'f':
     if (!(fp = fopen(optarg, "r"))) {
                 fprintf(stderr, "Cannot open keyfile: %s, exiting\n", optarg);
                 exit(EXIT_FAILURE);
@@ -199,14 +226,6 @@ int main(int argc, char *const argv[])
         defKeys_len = defKeys_len + 6;
 
         break;
-      case 'O':
-        // File output
-        if (!(pfDump = fopen(optarg, "wb"))) {
-          fprintf(stderr, "Cannot open: %s, exiting\n", optarg);
-          exit(EXIT_FAILURE);
-        }
-        // fprintf(stdout, "Output file: %s\n", optarg);
-        break;
       case 'D':
         // Partial File output
         if (!(pfKey = fopen(optarg, "w"))) {
@@ -222,11 +241,6 @@ int main(int argc, char *const argv[])
         usage(stderr, 1);
         break;
     }
-  }
-
-  if (!pfDump) {
-    ERR("parameter -O is mandatory");
-    exit(EXIT_FAILURE);
   }
 
   // Initialize reader/tag structures
@@ -340,14 +354,43 @@ int main(int argc, char *const argv[])
 
   print_nfc_target(&t.nt, true);
 
-  fprintf(stdout, "\nTry to authenticate to all sectors with default keys...\n");
-  fprintf(stdout, "Symbols: '.' no key found, '/' A key found, '\\' B key found, 'x' both keys found\n");
+  // read dictionary file
+  if (fp_dict) {
+    setPositionByLine(fp_dict, start_line);
+    fprintf(stdout, "\nReading dictionary file...\n");
+    while ((read = fgets(line, sizeof(line), fp_dict)) != NULL) {
+      int i, j = 0, str_len = strlen(line);
+      while (j < str_len &&
+             (i = slre_match(regex, line + j, str_len - j, caps, 500, 1)) > 0) {
+        //We've found a key, let's add it to the structure.
+        p = realloc(defKeys, defKeys_len + 6);
+        if (!p) {
+          ERR("Cannot allocate memory for dictKeys");
+          exit(EXIT_FAILURE);
+        }
+        defKeys = p;
+        memset(defKeys + defKeys_len, 0, 6);
+        num_to_bytes(strtoll(caps[0].ptr, NULL, 16), 6, defKeys + defKeys_len);
+        defKeys_len = defKeys_len + 6;
+
+        j += i;
+      }
+      dict_len++;
+    }
+    fprintf(stdout, "Dictionary file read, %d keys found\n", dict_len);
+    dict_len--;
+  }
+
+  fprintf(stdout, "\nTry to authenticate to key %c of sector %d with given keys...\n", keyType, sector);
   // Set the authentication information (uid)
   memcpy(mp.mpa.abtAuthUid, t.nt.nti.nai.abtUid + t.nt.nti.nai.szUidLen - 4, sizeof(mp.mpa.abtAuthUid));
   // Iterate over all keys (n = number of keys)
   n = sizeof(defaultKeys) / sizeof(defaultKeys[0]);
   size_t defKey_bytes_todo = defKeys_len;
   key = 0;
+  i = sector; // Sector counter
+  // Iterate over every block, where we haven't found a key yet
+  block = sector * 4 + 3;
   while (key < n || defKey_bytes_todo) {
     if (defKey_bytes_todo > 0) {
       memcpy(mp.mpa.abtKey, defKeys + defKeys_len - defKey_bytes_todo, sizeof(mp.mpa.abtKey));
@@ -356,117 +399,61 @@ int main(int argc, char *const argv[])
       memcpy(mp.mpa.abtKey, defaultKeys[key], sizeof(mp.mpa.abtKey));
       key++;
     }
-    fprintf(stdout, "[Key: %012llx] -> ", bytes_to_num(mp.mpa.abtKey, 6));
-    fprintf(stdout, "[");
-    i = 0; // Sector counter
-    // Iterate over every block, where we haven't found a key yet
-    for (block = 0; block <= t.num_blocks; ++block) {
-      if (trailer_block(block)) {
-        if (!t.sectors[i].foundKeyA) {
-          mc = MC_AUTH_A;
-          int res;
-          if ((res = nfc_initiator_mifare_cmd(r.pdi, mc, block, &mp)) < 0) {
-            if (res != NFC_EMFCAUTHFAIL) {
-              nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-              goto error;
-            }
-            mf_anticollision(t, r);
-          } else {
-            // Save all information about successfull keyA authentization
-            memcpy(t.sectors[i].KeyA, mp.mpa.abtKey, sizeof(mp.mpa.abtKey));
-            t.sectors[i].foundKeyA = true;
-            // Although KeyA can never be directly read from the data sector, KeyB can, so
-            // if we need KeyB for this sector, it should be revealed by a data read with KeyA
-            // todo - check for duplicates in cracked key list (do we care? will not be huge overhead)
-            // todo - make code more modular! :)
-            if (!t.sectors[i].foundKeyB) {
-              if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_READ, block, &mtmp)) >= 0) {
-                // print only for debugging as it messes up output!
-                //fprintf(stdout, "  Data read with Key A revealed Key B: [%012llx] - checking Auth: ", bytes_to_num(mtmp.mpd.abtData + 10, sizeof(mtmp.mpa.abtKey)));
-                memcpy(mtmp.mpa.abtKey, mtmp.mpd.abtData + 10, sizeof(mtmp.mpa.abtKey));
-                memcpy(mtmp.mpa.abtAuthUid, t.nt.nti.nai.abtUid + t.nt.nti.nai.szUidLen - 4, sizeof(mtmp.mpa.abtAuthUid));
-                if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_AUTH_B, block, &mtmp)) < 0) {
-                  //fprintf(stdout, "Failed!\n");
-                  mf_configure(r.pdi);
-                  mf_anticollision(t, r);
-                } else {
-                  //fprintf(stdout, "OK\n");
-                  memcpy(t.sectors[i].KeyB, mtmp.mpd.abtData + 10, sizeof(t.sectors[i].KeyB));
-                  t.sectors[i].foundKeyB = true;
-                  bk->size++;
-                  bk->brokenKeys = (uint64_t *) realloc((void *)bk->brokenKeys, bk->size * sizeof(uint64_t));
-                  bk->brokenKeys[bk->size - 1] = bytes_to_num(mtmp.mpa.abtKey, sizeof(mtmp.mpa.abtKey));
-                }
-              } else {
-                  if (res != NFC_ERFTRANS) {
-                    nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-                    goto error;
-                  }
-                mf_anticollision(t, r);
-              }
-            }
-          }
+
+    if (keyType == 'A') {
+      mc = MC_AUTH_A;
+      int res;
+      if ((res = nfc_initiator_mifare_cmd(r.pdi, mc, block, &mp)) < 0) {
+        if (res != NFC_EMFCAUTHFAIL) {
+          fprintf(stdout, VT100_cleareol "Do Not move the tag! Current Progress %d/%d", currentPosition, dict_len);
+          fflush(stdout);
+          while(!nfc_initiator_select_passive_target(r.pdi, nm, NULL, 0, &t.nt)){sleep(1);}
+          fprintf(stdout, VT100_cleareol "Progress %d/%d", currentPosition, dict_len);
         }
-        // if key reveal failed, try other keys
-        if (!t.sectors[i].foundKeyB) {
-          mc = MC_AUTH_B;
-          int res;
-          if ((res = nfc_initiator_mifare_cmd(r.pdi, mc, block, &mp)) < 0) {
-            if (res != NFC_EMFCAUTHFAIL) {
-              nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-              goto error;
-            }
-            mf_anticollision(t, r);
-            // No success, try next block
-            t.sectors[i].trailer = block;
-          } else {
-            memcpy(t.sectors[i].KeyB, mp.mpa.abtKey, sizeof(mp.mpa.abtKey));
-            t.sectors[i].foundKeyB = true;
-          }
-        }
-        if ((t.sectors[i].foundKeyA) && (t.sectors[i].foundKeyB)) {
-          fprintf(stdout, "x");
-        } else if (t.sectors[i].foundKeyA) {
-          fprintf(stdout, "/");
-        } else if (t.sectors[i].foundKeyB) {
-          fprintf(stdout, "\\");
-        } else {
-          fprintf(stdout, ".");
-        }
-        fflush(stdout);
-        // Save position of a trailer block to sector struct
-        t.sectors[i++].trailer = block;
+        mf_anticollision(t, r);
+      } else {
+        // Save all information about successfull keyA authentization
+        memcpy(t.sectors[i].KeyA, mp.mpa.abtKey, sizeof(mp.mpa.abtKey));
+        t.sectors[i].foundKeyA = true;
       }
     }
-    fprintf(stdout, "]\n");
+    // if key reveal failed, try other keys
+    if (keyType == 'B') {
+      mc = MC_AUTH_B;
+      int res;
+      if ((res = nfc_initiator_mifare_cmd(r.pdi, mc, block, &mp)) < 0) {
+        if (res != NFC_EMFCAUTHFAIL) {
+          fprintf(stdout, VT100_cleareol "Do Not move the tag! Current Progress %d/%d", currentPosition, dict_len);
+          fflush(stdout);
+          while(!nfc_initiator_select_passive_target(r.pdi, nm, NULL, 0, &t.nt)){sleep(1);}
+          fprintf(stdout, VT100_cleareol "Progress %d/%d", currentPosition, dict_len);
+        }
+        mf_anticollision(t, r);
+        // No success, try next block
+        t.sectors[i].trailer = block;
+      } else {
+        memcpy(t.sectors[i].KeyB, mp.mpa.abtKey, sizeof(mp.mpa.abtKey));
+        t.sectors[i].foundKeyB = true;
+      }
+    }
+    if ((t.sectors[i].foundKeyA) || (t.sectors[i].foundKeyB)) {
+      fprintf(stdout, "Found Key: %012llx", bytes_to_num(mp.mpa.abtKey, 6));
+      return 0;
+    }
+    fflush(stdout);
+    // Save position of a trailer block to sector struct
+    t.sectors[i + 1].trailer = block;
+
+    if (currentPosition % 50 == 0) {
+      fprintf(stdout, VT100_cleareol "Progress %d/%d", currentPosition, dict_len);
+    }
+    currentPosition++;
   }
 
-  fprintf(stdout, "\n");
-  for (i = 0; i < (t.num_sectors); ++i) {
-    if(t.sectors[i].foundKeyA){
-      fprintf(stdout, "Sector %02d - Found   Key A: %012llx ", i, bytes_to_num(t.sectors[i].KeyA, sizeof(t.sectors[i].KeyA)));
-      memcpy(&knownKey, t.sectors[i].KeyA, 6);
-      knownKeyLetter = 'A';
-      knownSector = i;
-    }
-    else{
-      fprintf(stdout, "Sector %02d - Unknown Key A               ", i);
-      unknownSector = i;
-      unknownKeyLetter = 'A';
-    }
-    if(t.sectors[i].foundKeyB){
-      fprintf(stdout, "Found   Key B: %012llx\n", bytes_to_num(t.sectors[i].KeyB, sizeof(t.sectors[i].KeyB)));
-      knownKeyLetter = 'B';
-      memcpy(&knownKey, t.sectors[i].KeyB, 6);
-      knownSector = i;
-    }
-    else{
-      fprintf(stdout, "Unknown Key B\n");
-      unknownSector = i;
-      unknownKeyLetter = 'B';
-    }
-  }
+  fprintf(stdout, VT100_cleareol "Progress %d/%d\n\n", currentPosition, dict_len);
   fflush(stdout);
+  ERR("No key found in dictionary\n");
+  goto error;
 
   // Return the first (exploit) sector encrypted with the default key or -1 (we have all keys)
   e_sector = find_exploit_sector(t);
@@ -654,85 +641,6 @@ int main(int argc, char *const argv[])
       succeed = 0;
       break;
     }
-  }
-
-  if (succeed) {
-    i = t.num_sectors; // Sector counter
-    fprintf(stdout, "Auth with all sectors succeeded, dumping keys to a file!\n");
-    // Read all blocks
-    for (block = t.num_blocks; block >= 0; block--) {
-      trailer_block(block) ? i-- : i;
-      failure = true;
-
-      // Try A key, auth() + read()
-      memcpy(mp.mpa.abtKey, t.sectors[i].KeyA, sizeof(t.sectors[i].KeyA));
-      int res;
-      if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_AUTH_A, block, &mp)) < 0) {
-        if (res != NFC_EMFCAUTHFAIL) {
-          nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-          goto error;
-        }
-        mf_configure(r.pdi);
-        mf_anticollision(t, r);
-      } else { // and Read
-        if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_READ, block, &mp)) >= 0) {
-          // fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'A', bytes_to_num(t.sectors[i].KeyA, 6));
-          // print_hex(mp.mpd.abtData, 16);
-          mf_configure(r.pdi);
-          mf_select_tag(r.pdi, &(t.nt));
-          failure = false;
-        } else {
-          // Error, now try read() with B key
-          if (res != NFC_ERFTRANS) {
-            nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-            goto error;
-          }
-          mf_configure(r.pdi);
-          mf_anticollision(t, r);
-          memcpy(mp.mpa.abtKey, t.sectors[i].KeyB, sizeof(t.sectors[i].KeyB));
-          if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_AUTH_B, block, &mp)) < 0) {
-            if (res != NFC_EMFCAUTHFAIL) {
-              nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-              goto error;
-            }
-            mf_configure(r.pdi);
-            mf_anticollision(t, r);
-          } else { // and Read
-            if ((res = nfc_initiator_mifare_cmd(r.pdi, MC_READ, block, &mp)) >= 0) {
-              // fprintf(stdout, "Block %02d, type %c, key %012llx :", block, 'B', bytes_to_num(t.sectors[i].KeyB, 6));
-              // print_hex(mp.mpd.abtData, 16);
-              mf_configure(r.pdi);
-              mf_select_tag(r.pdi, &(t.nt));
-              failure = false;
-            } else {
-              if (res != NFC_ERFTRANS) {
-                nfc_perror(r.pdi, "nfc_initiator_mifare_cmd");
-                goto error;
-              }
-              mf_configure(r.pdi);
-              mf_anticollision(t, r);
-              // ERR ("Error: Read B");
-            }
-          }
-        }
-      }
-      if (trailer_block(block)) {
-        // Copy the keys over from our key dump and store the retrieved access bits
-        memcpy(mtDump.amb[block].mbt.abtKeyA, t.sectors[i].KeyA, 6);
-        memcpy(mtDump.amb[block].mbt.abtKeyB, t.sectors[i].KeyB, 6);
-        if (!failure) memcpy(mtDump.amb[block].mbt.abtAccessBits, mp.mpd.abtData + 6, 4);
-      } else if (!failure) memcpy(mtDump.amb[block].mbd.abtData, mp.mpd.abtData, 16);
-      memcpy(mp.mpa.abtAuthUid, t.nt.nti.nai.abtUid + t.nt.nti.nai.szUidLen - 4, sizeof(mp.mpa.abtAuthUid));
-    }
-
-    // Finally save all keys + data to file
-    uint16_t dump_size = (t.num_blocks + 1) * 16;
-    if (fwrite(&mtDump, 1, dump_size, pfDump) != dump_size) {
-      fprintf(stdout, "Error, cannot write dump\n");
-      fclose(pfDump);
-      goto error;
-    }
-    fclose(pfDump);
   }
 
   free(t.sectors);
@@ -1262,4 +1170,17 @@ long long unsigned int bytes_to_num(uint8_t *src, uint32_t len)
     src++;
   }
   return num;
+}
+
+int setPositionByLine(FILE *fp, int nLine)
+{
+  int i = 0;
+  char buffer[20];
+  fpos_t pos;
+
+  rewind(fp);
+  for (; i < nLine; i++)
+    fgets(buffer, sizeof(buffer), fp);
+  fgetpos(fp, &pos);
+  return 0;
 }
