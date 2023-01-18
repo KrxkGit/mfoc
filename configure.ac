@@ -1,10 +1,10 @@
-AC_INIT([nfc-mfdetect],[0.10.7],[mifare@nethemba.com])
+AC_INIT([nfc-mfdict],[0.10.7],[mifare@nethemba.com])
 
 AC_CONFIG_MACRO_DIR([m4])
 
 AC_CONFIG_HEADERS([config.h])
 
-AC_CONFIG_SRCDIR([src/nfc-mfdetect.c])
+AC_CONFIG_SRCDIR([src/nfc-mfdict.c])
 
 AM_INIT_AUTOMAKE(dist-bzip2 no-dist-gzip)
 
