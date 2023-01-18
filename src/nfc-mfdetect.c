@@ -77,6 +77,7 @@ int main(int argc, char *const argv[])
   int ch, i, k, n, j, m;
   int key, block;
   int succeed = 1;
+  bool isSaveDumpFile = true;
 
   // Exploit sector
   int e_sector;
@@ -139,8 +140,11 @@ int main(int argc, char *const argv[])
   struct slre_cap caps[2];  
 
   // Parse command line arguments
-  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:f:")) != -1) {
+  while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:f:N")) != -1) {
     switch (ch) {
+      case 'N':
+        isSaveDumpFile = false;
+        break;
       case 'P':
         // Number of probes
         if (!(probes = atoi(optarg)) || probes < 1) {
@@ -224,7 +228,7 @@ int main(int argc, char *const argv[])
     }
   }
 
-  if (!pfDump) {
+  if (!pfDump && isSaveDumpFile) {
     ERR("parameter -O is mandatory");
     exit(EXIT_FAILURE);
   }
@@ -656,7 +660,7 @@ int main(int argc, char *const argv[])
     }
   }
 
-  if (succeed) {
+  if (succeed && isSaveDumpFile) {
     i = t.num_sectors; // Sector counter
     fprintf(stdout, "Auth with all sectors succeeded, dumping keys to a file!\n");
     // Read all blocks
