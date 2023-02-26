@@ -76,7 +76,7 @@ uint32_t unexpected_random = 0;
 int main(int argc, char *const argv[])
 {
   int ch, i, k, n, j, m, keyType;
-  int key, block, sector;
+  int key, block, current_sector;
   int succeed = 1;
   int start_line = 0;
 
@@ -131,18 +131,18 @@ int main(int argc, char *const argv[])
   mifare_cmd mc;
   FILE *pfDump = NULL;
   FILE *pfKey = NULL;
-  
-  //File pointers for the keyfile 
+
+  //File pointers for the keyfile
   FILE * fp;
   FILE * fp_dict;
   char line[20];
   size_t len = 0;
   char * read;
   int dict_len = 0;
-  
+
   //Regexp declarations
   static const char *regex = "([0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])";
-  struct slre_cap caps[2];  
+  struct slre_cap caps[2];
 
   // Parse command line arguments
   while ((ch = getopt(argc, argv, "hD:s:BP:T:S:O:k:t:f:d:l:")) != -1) {
@@ -175,7 +175,7 @@ int main(int argc, char *const argv[])
       }
       break;
       case 's': {
-        sector = atoi(optarg);
+        current_sector = atoi(optarg);
       }
       case 'l': {
         start_line = atoi(optarg) - 1;
@@ -201,17 +201,17 @@ int main(int argc, char *const argv[])
                 if (!p) {
                   ERR("Cannot allocate memory for defKeys");
                   exit(EXIT_FAILURE);
-                }                
+                }
                 defKeys = p;
                 memset(defKeys + defKeys_len, 0, 6);
                 num_to_bytes(strtoll(caps[0].ptr, NULL, 16), 6, defKeys + defKeys_len);
                 fprintf(stdout, "The custom key 0x%.*s has been added to the default keys\n", caps[0].len, caps[0].ptr);
                 defKeys_len = defKeys_len + 6;
-                
+
               j += i;
             }
         }
-      break;      
+      break;
       case 'k':
         // Add this key to the default keys
         p = realloc(defKeys, defKeys_len + 6);
@@ -381,16 +381,16 @@ int main(int argc, char *const argv[])
     dict_len--;
   }
 
-  fprintf(stdout, "\nTry to authenticate to key %c of sector %d with given keys...\n", keyType, sector);
+  fprintf(stdout, "\nTry to authenticate to key %c of sector %d with given keys...\n", keyType, current_sector);
   // Set the authentication information (uid)
   memcpy(mp.mpa.abtAuthUid, t.nt.nti.nai.abtUid + t.nt.nti.nai.szUidLen - 4, sizeof(mp.mpa.abtAuthUid));
   // Iterate over all keys (n = number of keys)
   n = sizeof(defaultKeys) / sizeof(defaultKeys[0]);
   size_t defKey_bytes_todo = defKeys_len;
   key = 0;
-  i = sector; // Sector counter
+  i = current_sector; // Sector counter
   // Iterate over every block, where we haven't found a key yet
-  block = sector * 4 + 3;
+  block = current_sector * 4 + 3;
   while (key < n || defKey_bytes_todo) {
     if (defKey_bytes_todo > 0) {
       memcpy(mp.mpa.abtKey, defKeys + defKeys_len - defKey_bytes_todo, sizeof(mp.mpa.abtKey));
