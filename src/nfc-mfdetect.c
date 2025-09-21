@@ -756,7 +756,7 @@ error:
   exit(EXIT_FAILURE);
 }
 
-void usage(FILE *stream, int errno)
+void usage(FILE *stream, int exit_code)
 {
   fprintf(stream, "The nfc-mfdetect is a mfoc castrated version. Only detect but not crack\n");
   fprintf(stream, "\n");
@@ -781,7 +781,7 @@ void usage(FILE *stream, int errno)
   fprintf(stream, "\n");
   fprintf(stream, "This is nfc-mfdetect version %s.\n", PACKAGE_VERSION);
   fprintf(stream, "For more information, run: 'man nfc-mfdetect'.\n");
-  exit(errno);
+  exit(exit_code);
 }
 
 void mf_init(mfreader *r)
